@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 const mysql = require("promise-mysql");
 // const mysql = require("mysql2/promise");
 
@@ -22,12 +23,12 @@ const mysql = require("promise-mysql");
 // // });
 
 const connection = mysql.createConnection({
-  host: "localhost",
-  // host: "viaduct.proxy.rlwy.net",
+  //host: "localhost",
+  host: "viaduct.proxy.rlwy.net",
   user: "root",
   // user: "root",
-  password: "",
-  // password: "cGF5a253311EdBCHG64ChCcFE5CD1h-a",
+  //password: "",
+  password: "cGF5a253311EdBCHG64ChCcFE5CD1h-a",
   database: "bdscap_sd_v3",
   // database: "railway",
   // database: "bdscaprevis",
@@ -48,7 +49,7 @@ async function closeConnection() {
       console.log("Closed :) ");
     })
     .catch((error) => {
-      console.log("No closed :(");
+      console.log("No closed :(", error);
     });
 }
 
