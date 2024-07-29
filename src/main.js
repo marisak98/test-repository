@@ -15,6 +15,9 @@ const {
 } = require("./ui/PagosMultiples/pagos-multiples.api");
 const { contratarPrincipales } = require("./ui/Cuotas/cuotas.api");
 const { cancelarServicios } = require("./ui/Pagos/pagos-individual.api");
+
+const supabase = require("./database");
+
 let window;
 let windowFactura;
 let windowFacturaMultiple;
@@ -153,7 +156,7 @@ ipcMain.on(
     } catch (error) {
       console.error("Error al unir e imprimir PDFs:", error);
     }
-  }
+  },
 );
 
 // try {
@@ -201,92 +204,76 @@ function createWindow() {
 }
 
 app.on("ready", () => {
-  //Funciones de inicio de sesion
   ipcMain.on("validarUsuarios", async (event, { usuario, clave }) => {
-    // const ses = session.defaultSession;
     try {
-      const conn = await getConnection();
-      const user = await conn.query(
-        "SELECT usuario,rol FROM viewUsuarios WHERE usuario = ?",
-        // "SELECT * from usuarios;",
-        usuario,
-        async (error, results) => {
-          if (error) {
-            event.reply("loginResponse", {
-              success: false,
-              message: "Error en la consulta a la base de datos",
-            });
-            console.log("Error: ", error);
-            return;
-          } else if (results.length > 0) {
-            console.log("usuario en peticion ");
-            const user = await conn.query(
-              "SELECT * from viewUsuarios where usuario=? and clave=?",
-              [usuario, clave],
-              async (error, results) => {
-                if (error) {
-                  event.sender.send("loginResponse", {
-                    success: false,
-                    message: "Error en la consulta a la base de datos",
-                  });
-                  const notification = new Notification({
-                    title: "No se ha podido iniciar session!",
-                    body: "Ocurrio un error al consultar en la base de datos, si el problema persiste solicite soporte tecnico",
-                    icon: "/path/to/icon.png",
-                  });
+      console.log(`Intentando iniciar sesión con ${usuario}`);
+      // Uso de la autenticación de Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: usuario,
+        password: clave,
+      });
+      console.log(data);
 
-                  notification.show();
-                  return;
-                } else if (results.length > 0) {
-                  console.log("Credenciales correctas! ");
-                  event.sender.send("loginResponse", {
-                    success: true,
-                    message: "Credenciales correctas",
-                    data: results[0].rol,
-                  });
-                  const notification = new Notification({
-                    title: "Credenciales correctas!",
-                    body: "Bienvenido usuario: " + usuario,
-                    icon: "/path/to/icon.png",
-                  });
+      if (error) {
+        // Manejo de errores de autenticación
+        if (error.message.includes("Invalid login credentials")) {
+          event.reply("loginResponse", {
+            success: false,
+            message: "Credenciales incorrectas",
+          });
 
-                  notification.show();
-                } else {
-                  status: false;
-                  event.sender.send("loginResponse", {
-                    success: false,
-                    message: "Credenciales incorrectas",
-                  });
+          const notification = new Notification({
+            title: "Error de credenciales!",
+            body: "La contraseña es incorrecta",
+            icon: "/path/to/icon.png",
+          });
+          notification.show();
+        } else {
+          event.reply("loginResponse", {
+            success: false,
+            message: error.message,
+          });
 
-                  const notification = new Notification({
-                    title: "Error de credenciales!",
-                    body: "La contraseña es incorrecta",
-                    icon: "/path/to/icon.png",
-                  });
-                  notification.show();
-                  return;
-                }
-              }
-            );
-          } else {
-            event.sender.send("loginResponse", {
-              success: false,
-              message: "No existe este usuario",
-            });
-            const notification = new Notification({
-              title: "Error de credenciales!",
-              body: "No hay un usuario registrado para " + usuario,
-              icon: "/path/to/icon.png",
-            });
-            notification.show();
-            return;
-          }
+          const notification = new Notification({
+            title: "No se ha podido iniciar sesión!",
+            body: `Ocurrió un error: ${error.message}`,
+            icon: "/path/to/icon.png",
+          });
+          notification.show();
         }
-      );
-      console.log("Usuarios: ", user);
-      return user;
+        return;
+      }
+
+      // Autenticación exitosa
+      if (data.user) {
+        console.log("Credenciales correctas! ", data.user);
+
+        event.reply("loginResponse", {
+          success: true,
+          message: "Credenciales correctas",
+          data: data.user,
+        });
+
+        const notification = new Notification({
+          title: "Credenciales correctas!",
+          body: "Bienvenido usuario: " + usuario,
+          icon: "/path/to/icon.png",
+        });
+        notification.show();
+      }
     } catch (error) {
-      console.log("Error al iniciar session: ", error);
+      console.log("Error al iniciar sesión: ", error);
+      event.reply("loginResponse", {
+        success: false,
+        message: "Error al iniciar sesión",
+      });
+
+      const notification = new Notification({
+        title: "No se ha podido iniciar sesión!",
+        body: `Ocurrió un error al intentar iniciar sesión: ${error.message}`,
+        icon: "/path/to/icon.png",
+      });
+      notification.show();
     }
   });
 });
@@ -466,7 +453,7 @@ ipcMain.on(
     datosTotales,
     planilla,
     // Cambio
-    editados
+    editados,
   ) => {
     console.log("planillaCancelar desde main: ", planilla);
     if (!windowFacturaMultiple) {
@@ -479,7 +466,7 @@ ipcMain.on(
         },
       });
       await windowFacturaMultiple.loadFile(
-        "src/ui/FacturaMultipleBaucher/facturaMultipleBaucher.html"
+        "src/ui/FacturaMultipleBaucher/facturaMultipleBaucher.html",
       );
       // // window.send("datos-a-pagina2", datos);
       await windowFacturaMultiple.show();
@@ -491,7 +478,7 @@ ipcMain.on(
         datosAgua,
         datosTotales,
         planilla,
-        editados
+        editados,
       );
       windowFacturaMultiple.on("closed", () => {
         windowFacturaMultiple = null;
@@ -514,7 +501,7 @@ ipcMain.on(
         windowFacturaMultiple = null;
       });
     }
-  }
+  },
 );
 ipcMain.on(
   "generateFacturaMultiple",
@@ -528,7 +515,7 @@ ipcMain.on(
     datosTotales,
     planilla,
     // Cambio
-    editados
+    editados,
   ) => {
     console.log("Datos a enviar: " + datos.mensaje);
     console.log("planillaCancelar desde main: ", planilla);
@@ -542,7 +529,7 @@ ipcMain.on(
         },
       });
       await windowFacturaMultiple.loadFile(
-        "src/ui/FacturaMultiple/facturaMultiple.html"
+        "src/ui/FacturaMultiple/facturaMultiple.html",
       );
       // // window.send("datos-a-pagina2", datos);
       await windowFacturaMultiple.show();
@@ -557,7 +544,7 @@ ipcMain.on(
         datosTotales,
         planilla,
         // Cambio
-        editados
+        editados,
       );
       windowFacturaMultiple.on("closed", () => {
         windowFacturaMultiple = null;
@@ -580,7 +567,7 @@ ipcMain.on(
         windowFacturaMultiple = null;
       });
     }
-  }
+  },
 );
 
 // Define una función para enviar datos a pagina2
@@ -595,7 +582,7 @@ ipcMain.on(
     datosAgua,
     datosTotales,
     editados,
-    planillaAgrupada
+    planillaAgrupada,
   ) => {
     console.log("Datos a enviar: " + datos.mensaje);
     // await window.loadFile("src/ui/factura.html");
@@ -624,9 +611,9 @@ ipcMain.on(
       datosAgua,
       datosTotales,
       editados,
-      planillaAgrupada
+      planillaAgrupada,
     );
-  }
+  },
 );
 ipcMain.on(
   "generate-factura-individual-baucher",
@@ -639,7 +626,7 @@ ipcMain.on(
     datosAgua,
     datosTotales,
     editados,
-    planillaAgrupada
+    planillaAgrupada,
   ) => {
     console.log("Datos a enviar: " + datos.mensaje);
     // await window.loadFile("src/ui/factura.html");
@@ -655,7 +642,9 @@ ipcMain.on(
         contextIsolation: false,
       },
     });
-    await windowFactura.loadFile("src/ui/FacturaIndividualBaucher/facturaIndividualBaucher.html");
+    await windowFactura.loadFile(
+      "src/ui/FacturaIndividualBaucher/facturaIndividualBaucher.html",
+    );
     // // window.send("datos-a-pagina2", datos);
     await windowFactura.show();
 
@@ -668,9 +657,9 @@ ipcMain.on(
       datosAgua,
       datosTotales,
       editados,
-      planillaAgrupada
+      planillaAgrupada,
     );
-  }
+  },
 );
 ipcMain.on("cerrarFactura", async (event) => {
   console.log("Closing...");
@@ -699,9 +688,9 @@ ipcMain.on(
       datos,
       encabezado,
       recaudaciones,
-      datosTotales
+      datosTotales,
     );
-  }
+  },
 );
 ipcMain.on("contrato-desde-socios", async (event, socioId, socioCedula) => {
   console.log("Datos a enviar: " + socioId, socioCedula);
@@ -768,7 +757,7 @@ ipcMain.handle("getUsuarios", async (event, criterio, criterioContent) => {
           criterio +
           " like '%" +
           criterioContent +
-          "%';"
+          "%';",
       );
       console.log(results);
       return results;
@@ -793,7 +782,7 @@ ipcMain.handle("getEmpleados", async (event, criterio, criterioContent) => {
           criterio +
           " like '%" +
           criterioContent +
-          "%';"
+          "%';",
       );
       console.log(results);
       return results;
@@ -814,12 +803,12 @@ ipcMain.handle("createUsuario", async (event, empleado, usuario) => {
     //empleado.cargosId = resultCargo.insertId;
     const resultEmpleado = await conn.query(
       "Insert into empleados set ? ;",
-      empleado
+      empleado,
     );
     usuario.empleadosId = resultEmpleado.insertId;
     const resultUsuario = await conn.query(
       "Insert into usuarios set ?",
-      usuario
+      usuario,
     );
     console.log(resultUsuario);
     event.sender.send("Notificar", {
@@ -850,7 +839,7 @@ ipcMain.handle("createEmpleado", async (event, empleado) => {
     //empleado.cargosId = resultCargo.insertId;
     const resultEmpleado = await conn.query(
       "Insert into empleados set ? ;",
-      empleado
+      empleado,
     );
     console.log(resultEmpleado);
     event.sender.send("Notificar", {
@@ -886,7 +875,7 @@ ipcMain.handle("getUsuarioById", async (event, id) => {
       "from empleados join usuarios on empleados.id=usuarios.empleadosId join " +
       "cargosempleados on cargosempleados.id=empleados.cargosId " +
       "join roles on roles.id=usuarios.rolesId where empleados.id=?;",
-    id
+    id,
   );
   console.log(result);
   return result;
@@ -904,7 +893,7 @@ ipcMain.handle("getEmpleadoById", async (event, id) => {
       "cargosempleados.cargoDescripcion " +
       "from empleados join " +
       "cargosempleados on cargosempleados.id=empleados.cargosId where empleados.id=? ;",
-    id
+    id,
   );
   console.log(result);
   return result;
@@ -914,7 +903,7 @@ ipcMain.handle("updateUsuario", async (event, id, empleado, usuario) => {
   try {
     const resultEmpleado = await conn.query(
       "UPDATE empleados set ? where id = ?",
-      [empleado, id]
+      [empleado, id],
     );
     console.log(resultEmpleado);
     if (
@@ -929,20 +918,20 @@ ipcMain.handle("updateUsuario", async (event, id, empleado, usuario) => {
     ) {
       const usuarioExist = await conn.query(
         "SELECT * FROM usuarios WHERE usuarios.empleadosId=? order by usuarios.id desc limit 1;",
-        id
+        id,
       );
       if (usuarioExist.length > 0 && usuarioExist[0].id !== null) {
         console.log("existe el usuario: " + usuarioExist[0].id);
         const resultUsuario = await conn.query(
           "UPDATE usuarios set ? where empleadosId = ?;",
-          [usuario, id]
+          [usuario, id],
         );
         console.log("Se actualizó el usuario", resultUsuario);
       } else {
         usuario.empleadosId = id;
         const resultUsuario = await conn.query(
           "INSERT INTO usuarios SET ?",
-          usuario
+          usuario,
         );
         console.log("Se creó el usuario", resultUsuario);
       }
@@ -968,7 +957,7 @@ ipcMain.handle("updateEmpleado", async (event, id, empleado) => {
   try {
     const usuarioExist = await conn.query(
       "SELECT * FROM usuarios WHERE usuarios.empleadosId=? order by usuarios.id desc limit 1;",
-      id
+      id,
     );
     if (usuarioExist.length > 0 && usuarioExist[0].id !== null) {
       console.log("existe el usuario: " + usuarioExist[0].id);
@@ -1010,11 +999,11 @@ ipcMain.handle("deleteUsuario", async (event, id) => {
   try {
     const resultUsuario = await conn.query(
       "DELETE FROM usuarios WHERE  empleadosId=?",
-      id
+      id,
     );
     const resultEmpleado = await conn.query(
       "UPDATE empleados SET usuariosn='No' WHERE id =?;",
-      id
+      id,
     );
     console.log(resultEmpleado);
     event.sender.send("Notificar", {
@@ -1041,7 +1030,7 @@ ipcMain.handle("deleteEmpleado", async (event, id) => {
   try {
     const resultEmpleado = await conn.query(
       "DELETE FROM empleados WHERE id =?;",
-      id
+      id,
     );
     event.sender.send("Notificar", {
       success: true,
@@ -1065,7 +1054,7 @@ ipcMain.handle("getSocios", async (event, criterio, criterioContent) => {
   try {
     if (criterio === "all" || criterio === undefined) {
       const results = conn.query(
-        "SELECT * FROM viewSocios order by primerApellido;"
+        "SELECT * FROM viewSocios order by primerApellido;",
       );
       console.log(results);
       return results;
@@ -1075,7 +1064,7 @@ ipcMain.handle("getSocios", async (event, criterio, criterioContent) => {
           criterio +
           " like '%" +
           criterioContent +
-          "%';"
+          "%';",
       );
       console.log(results);
       return results;
@@ -1120,7 +1109,7 @@ ipcMain.handle("getContratanteByCedula", async (event, cedula) => {
   const conn = await getConnection();
   const result = await conn.query(
     "Select * from socios where socios.cedulaPasaporte = ?",
-    cedula
+    cedula,
   );
   console.log(result[0]);
   return result[0];
@@ -1176,7 +1165,7 @@ ipcMain.handle("deleteSocio", async (event, id) => {
 ipcMain.handle("getImplementos", async () => {
   const conn = await getConnection();
   const results = conn.query(
-    "SELECT * FROM viewimplementosinvenatrio order by implementosId desc;"
+    "SELECT * FROM viewimplementosinvenatrio order by implementosId desc;",
   );
   console.log(results);
   return results;
@@ -1188,12 +1177,12 @@ ipcMain.handle("createImplemento", async (event, implemento, inventario) => {
     //   product.price = parseFloat(product.price);
     const resultImplemento = await conn.query(
       "INSERT INTO implementos set ?;",
-      implemento
+      implemento,
     );
     inventario.implementosId = resultImplemento.insertId;
     const resulInventario = await conn.query(
       "INSERT INTO inventario set ?;",
-      inventario
+      inventario,
     );
     console.log(resultImplemento, resulInventario);
     new Notification({
@@ -1210,7 +1199,7 @@ ipcMain.handle("getImplementoById", async (event, id) => {
   const conn = await getConnection();
   const result = await conn.query(
     "SELECT * FROM viewimplementosinvenatrio where implementosId = ?",
-    id
+    id,
   );
   console.log("Resultado", result[0]);
   return result[0];
@@ -1222,11 +1211,11 @@ ipcMain.handle(
       const conn = await getConnection();
       const resultImplemento = await conn.query(
         "UPDATE implementos SET ? where id = ?",
-        [implemento, id]
+        [implemento, id],
       );
       const resultInventario = await conn.query(
         "UPDATE inventario SET ? where implementosId = ?",
-        [inventario, id]
+        [inventario, id],
       );
       new Notification({
         title: "SCAP Santo Domingo No.1",
@@ -1241,7 +1230,7 @@ ipcMain.handle(
       }).show();
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle("deleteImplemento", async (event, id) => {
   console.log("id from main.js: ", id);
@@ -1249,11 +1238,11 @@ ipcMain.handle("deleteImplemento", async (event, id) => {
     const conn = await getConnection();
     const resultInventario = await conn.query(
       "DELETE FROM inventario WHERE implementosId = ?",
-      id
+      id,
     );
     const resultImplemento = await conn.query(
       "DELETE from implementos where id = ?",
-      id
+      id,
     );
     new Notification({
       title: "SCAP Santo Domingo No.1",
@@ -1288,7 +1277,7 @@ ipcMain.handle(
       if (criterio == "all" || criterio == undefined) {
         if (mes == "all" && anio == "all") {
           const results = conn.query(
-            "SELECT * FROM viewServicios where tipo='Servicio fijo'order by id asc;"
+            "SELECT * FROM viewServicios where tipo='Servicio fijo'order by id asc;",
           );
           console.log(results);
           return results;
@@ -1297,7 +1286,7 @@ ipcMain.handle(
             "SELECT * FROM viewServicios where " +
               "tipo='Servicio fijo' AND month(fechaCreacion)='" +
               mes +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1306,7 +1295,7 @@ ipcMain.handle(
             "SELECT * FROM viewServicios where " +
               "tipo='Servicio fijo' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1317,7 +1306,7 @@ ipcMain.handle(
               mes +
               "' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1330,7 +1319,7 @@ ipcMain.handle(
               " like '%" +
               criterioContent +
               "%'" +
-              " and tipo='Servicio fijo'order by id asc;"
+              " and tipo='Servicio fijo'order by id asc;",
           );
           console.log(results);
           return results;
@@ -1343,7 +1332,7 @@ ipcMain.handle(
               "%'" +
               " and tipo='Servicio fijo' AND month(fechaCreacion)= '" +
               mes +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1356,7 +1345,7 @@ ipcMain.handle(
               "%'" +
               " and tipo='Servicio fijo' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1371,7 +1360,7 @@ ipcMain.handle(
               mes +
               "' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1380,7 +1369,7 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle("createServiciosFijos", async (event, servicio) => {
   try {
@@ -1388,7 +1377,7 @@ ipcMain.handle("createServiciosFijos", async (event, servicio) => {
     console.log("Recibido: ", servicio);
     const resultServicio = await conn.query(
       "INSERT INTO servicios set ?;",
-      servicio
+      servicio,
     );
     servicio.id = resultServicio.insertId;
     console.log(resultServicio);
@@ -1411,7 +1400,7 @@ ipcMain.handle("getServiciosFijosById", async (event, id) => {
   const conn = await getConnection();
   const result = await conn.query(
     "SELECT * FROM viewServicios where id = ?",
-    id
+    id,
   );
 
   console.log("Resultado", result[0]);
@@ -1427,7 +1416,7 @@ ipcMain.handle("getServiciosFijosById", async (event, id) => {
 ipcMain.handle("getServiciosDisponibles", async (event) => {
   const conn = await getConnection();
   const result = await conn.query(
-    "SELECT * FROM viewServicios where tipo='Servicio fijo';"
+    "SELECT * FROM viewServicios where tipo='Servicio fijo';",
   );
   console.log("Resultado", result);
   return result;
@@ -1437,13 +1426,13 @@ ipcMain.handle("updateServiciosFijos", async (event, id, servicio) => {
     const conn = await getConnection();
     const resultServicio = await conn.query(
       "UPDATE servicios SET ? where id = ?",
-      [servicio, id]
+      [servicio, id],
     );
 
     if (resultServicio) {
       const resultServicioContratado = await conn.query(
         "Update serviciosContratados set valorIndividual=?, valorPagosIndividual=? where serviciosId=? ;",
-        [servicio.valor, servicio.valor, id]
+        [servicio.valor, servicio.valor, id],
       );
     }
 
@@ -1467,7 +1456,7 @@ ipcMain.handle("deleteServiciosFijos", async (event, id) => {
     const conn = await getConnection();
     const resultServicio = await conn.query(
       "DELETE FROM servicios WHERE id = ?",
-      id
+      id,
     );
 
     new Notification({
@@ -1490,7 +1479,7 @@ ipcMain.handle("getServiciosContratadosById", async (event, id) => {
   const result = await conn.query(
     "SELECT * FROM viewServiciosContratados where id =" +
       id +
-      " and tipo='Servicio fijo' and estado='Activo';"
+      " and tipo='Servicio fijo' and estado='Activo';",
   );
 
   console.log("Resultado", result);
@@ -1511,7 +1500,7 @@ ipcMain.handle(
           "SELECT * FROM viewContratos WHERE codigo " +
             "like '%" +
             sectores +
-            "%' ;"
+            "%' ;",
         );
         console.log("Resultado: ", result);
         return result;
@@ -1524,7 +1513,7 @@ ipcMain.handle(
             "%' AND codigo " +
             "like '%" +
             sectores +
-            "%' ;"
+            "%' ;",
         );
         console.log("Resultado: ", result);
         return result;
@@ -1532,14 +1521,14 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle("getContratadosById", async (event, servicioId) => {
   const conn = await getConnection();
   const result = await conn.query(
     "SELECT contratosId FROM serviciosContratados WHERE NOT estado='Innactivo' and " +
       "serviciosId=? ;",
-    servicioId
+    servicioId,
   );
 
   console.log("Resultado: ", result);
@@ -1551,7 +1540,7 @@ ipcMain.handle("getRecaudaciones", async (event, servicioId, desde, hasta) => {
   try {
     if (desde === "all" || desde === undefined) {
       const result = await conn.query(
-        "CALL selectRecaudaciones(" + servicioId + ",'2023-01-01',now()); "
+        "CALL selectRecaudaciones(" + servicioId + ",'2023-01-01',now()); ",
       );
       console.log("Resultado: ", result[0]);
       return result[0];
@@ -1563,7 +1552,7 @@ ipcMain.handle("getRecaudaciones", async (event, servicioId, desde, hasta) => {
           desde +
           "','" +
           hasta +
-          "'); "
+          "'); ",
       );
       console.log("Resultado: ", result[0]);
       return result[0];
@@ -1578,7 +1567,7 @@ ipcMain.handle("getRecaudarByServicio", async (event, servicioId) => {
     const conn = await getConnection();
     const result = await conn.query(
       "SELECT * from viewEstadoPagos WHERE serviciosId= ? order by primerApellido;",
-      servicioId
+      servicioId,
     );
     console.log("Resultados: ", result);
     return result;
@@ -1596,7 +1585,7 @@ ipcMain.handle("getServicioAgua", async (event, contratoId, fechaEmision) => {
         fechaEmision +
         "') AND year(fechaEmision) = year('" +
         fechaEmision +
-        "') AND nombre='Agua Potable';"
+        "') AND nombre='Agua Potable';",
     );
 
     console.log("Resultado agua:", result[0]);
@@ -1610,13 +1599,13 @@ ipcMain.handle("createServicioGuia", async (event, servicioGuia) => {
   try {
     const conn = await getConnection();
     const guia = await conn.query(
-      "SELECT * FROM servicios WHERE nombre='Socio comuna';"
+      "SELECT * FROM servicios WHERE nombre='Socio comuna';",
     );
     if (guia.length > 0) {
       servicioGuia.serviciosId = guia[0].id;
       const result = await conn.query(
         "INSERT INTO serviciosContratados set ? ;",
-        servicioGuia
+        servicioGuia,
       );
       return result;
     }
@@ -1629,13 +1618,13 @@ ipcMain.handle("createRecargo", async (event, servicioRecargo) => {
   try {
     const conn = await getConnection();
     const recargo = await conn.query(
-      "SELECT * FROM servicios WHERE nombre='Recargo';"
+      "SELECT * FROM servicios WHERE nombre='Recargo';",
     );
     if (recargo.length > 0) {
       servicioRecargo.serviciosId = recargo[0].id;
       const result = await conn.query(
         "INSERT INTO serviciosContratados set ? ;",
-        servicioRecargo
+        servicioRecargo,
       );
       return result;
     }
@@ -1661,7 +1650,7 @@ ipcMain.handle(
       if (criterio == "all" || criterio == undefined) {
         if (mes == "all" && anio == "all") {
           const results = conn.query(
-            "SELECT * FROM viewEstadoPagos where tipo='Cuota' and not estadoDetalles ='Anulado' ;"
+            "SELECT * FROM viewEstadoPagos where tipo='Cuota' and not estadoDetalles ='Anulado' ;",
           );
           console.log(results);
           return results;
@@ -1670,7 +1659,7 @@ ipcMain.handle(
             "SELECT * FROM viewEstadoPagos where " +
               "tipo='Cuota' AND month(fechaCreacion)='" +
               mes +
-              "' where not estadoDetalles ='Anulado' order by id asc;"
+              "' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1679,7 +1668,7 @@ ipcMain.handle(
             "SELECT * FROM viewEstadoPagos where " +
               "tipo='Cuota' AND year(fechaCreacion) = '" +
               anio +
-              "' where not estadoDetalles ='Anulado' order by id asc;"
+              "' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1690,7 +1679,7 @@ ipcMain.handle(
               mes +
               "' AND year(fechaCreacion) = '" +
               anio +
-              "' where not estadoDetalles ='Anulado' order by id asc;"
+              "' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1703,7 +1692,7 @@ ipcMain.handle(
               " like '%" +
               criterioContent +
               "%'" +
-              " and tipo='Cuota' where not estadoDetalles ='Anulado' order by id asc;"
+              " and tipo='Cuota' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1716,7 +1705,7 @@ ipcMain.handle(
               "%'" +
               " and tipo='Cuota' AND month(fechaCreacion)= '" +
               mes +
-              "' where not estadoDetalles ='Anulado' order by id asc;"
+              "' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1729,7 +1718,7 @@ ipcMain.handle(
               "%'" +
               " and tipo='Cuota' AND year(fechaCreacion) = '" +
               anio +
-              "' where not estadoDetalles ='Anulado' order by id asc;"
+              "' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1744,7 +1733,7 @@ ipcMain.handle(
               mes +
               "' AND year(fechaCreacion) = '" +
               anio +
-              "' where not estadoDetalles ='Anulado' order by id asc;"
+              "' where not estadoDetalles ='Anulado' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1753,7 +1742,7 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "getCuotas",
@@ -1770,7 +1759,7 @@ ipcMain.handle(
       if (criterio == "all" || criterio == undefined) {
         if (mes == "all" && anio == "all") {
           const results = conn.query(
-            "SELECT * FROM viewServicios where tipo='Cuota'order by id asc;"
+            "SELECT * FROM viewServicios where tipo='Cuota'order by id asc;",
           );
           console.log(results);
           return results;
@@ -1779,7 +1768,7 @@ ipcMain.handle(
             "SELECT * FROM viewServicios where " +
               "tipo='Cuota' AND month(fechaCreacion)='" +
               mes +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1788,7 +1777,7 @@ ipcMain.handle(
             "SELECT * FROM viewServicios where " +
               "tipo='Cuota' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1799,7 +1788,7 @@ ipcMain.handle(
               mes +
               "' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1812,7 +1801,7 @@ ipcMain.handle(
               " like '%" +
               criterioContent +
               "%'" +
-              " and tipo='Cuota'order by id asc;"
+              " and tipo='Cuota'order by id asc;",
           );
           console.log(results);
           return results;
@@ -1825,7 +1814,7 @@ ipcMain.handle(
               "%'" +
               " and tipo='Cuota' AND month(fechaCreacion)= '" +
               mes +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1838,7 +1827,7 @@ ipcMain.handle(
               "%'" +
               " and tipo='Cuota' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1853,7 +1842,7 @@ ipcMain.handle(
               mes +
               "' AND year(fechaCreacion) = '" +
               anio +
-              "' order by id asc;"
+              "' order by id asc;",
           );
           console.log(results);
           return results;
@@ -1862,13 +1851,13 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle("getCuotasById", async (event, id) => {
   const conn = await getConnection();
   const result = await conn.query(
     "SELECT * FROM viewServicios where id = ?",
-    id
+    id,
   );
 
   console.log("Resultado", result[0]);
@@ -1880,7 +1869,7 @@ ipcMain.handle("createCuotas", async (event, cuota) => {
     console.log("Recibido: ", cuota);
     const resultServicio = await conn.query(
       "INSERT INTO servicios set ?;",
-      cuota
+      cuota,
     );
     cuota.id = resultServicio.insertId;
     console.log(resultServicio);
@@ -1914,7 +1903,7 @@ ipcMain.handle(
             contratar.serviciosId +
             " AND sociosId=" +
             socioId +
-            " ;"
+            " ;",
         );
         if (!socioContratanteExiste.length > 0) {
           console.log("No lo encontro");
@@ -1925,12 +1914,12 @@ ipcMain.handle(
               " AND " +
               "contratosId= " +
               contratar.contratosId +
-              ";"
+              ";",
           );
           if (!contratadoExiste[0].existe > 0) {
             const resultServicio = await conn.query(
               "INSERT INTO serviciosContratados set ?;",
-              contratar
+              contratar,
             );
             console.log(resultServicio);
             event.sender.send("Notificar", {
@@ -1958,12 +1947,12 @@ ipcMain.handle(
             " AND " +
             "contratosId= " +
             contratar.contratosId +
-            ";"
+            ";",
         );
         if (!contratadoExiste[0].existe > 0) {
           const resultServicio = await conn.query(
             "INSERT INTO serviciosContratados set ?;",
-            contratar
+            contratar,
           );
           console.log(resultServicio);
           event.sender.send("Notificacion", {
@@ -1989,7 +1978,7 @@ ipcMain.handle(
       });
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "createServicioContratado",
@@ -2006,7 +1995,7 @@ ipcMain.handle(
             contratar.serviciosId +
             " AND sociosId=" +
             socioId +
-            " ;"
+            " ;",
         );
         if (!socioContratanteExiste.length > 0) {
           console.log("No lo encontro");
@@ -2017,12 +2006,12 @@ ipcMain.handle(
               " AND " +
               "contratosId= " +
               contratar.contratosId +
-              ";"
+              ";",
           );
           if (!contratadoExiste[0].existe > 0) {
             const resultServicio = await conn.query(
               "INSERT INTO serviciosContratados set ?;",
-              contratar
+              contratar,
             );
             console.log(resultServicio);
             event.sender.send("Notificar", {
@@ -2050,12 +2039,12 @@ ipcMain.handle(
             " AND " +
             "contratosId= " +
             contratar.contratosId +
-            ";"
+            ";",
         );
         if (!contratadoExiste[0].existe > 0) {
           const resultServicio = await conn.query(
             "INSERT INTO serviciosContratados set ?;",
-            contratar
+            contratar,
           );
           console.log(resultServicio);
           event.sender.send("Notificar", {
@@ -2081,7 +2070,7 @@ ipcMain.handle(
       });
       console.log(error);
     }
-  }
+  },
 );
 
 ipcMain.handle("deleteContratadoDetalle", async (event, descontratar) => {
@@ -2094,13 +2083,13 @@ ipcMain.handle("deleteContratadoDetalle", async (event, descontratar) => {
     const detallesServicio = await conn.query(
       "SELECT * FROM detallesServicio WHERE serviciosContratadosId =" +
         descontratar +
-        ";"
+        ";",
     );
 
     if (detallesServicio.length > 0) {
       console.log("Array con datos.");
       const canceladoExiste = detallesServicio.find(
-        (cancelado) => cancelado.estado === "Cancelado"
+        (cancelado) => cancelado.estado === "Cancelado",
       );
 
       if (canceladoExiste) {
@@ -2116,13 +2105,13 @@ ipcMain.handle("deleteContratadoDetalle", async (event, descontratar) => {
         console.log("Ningún detalle cancelado fue encontrado.");
         detallesServicio.forEach(async (detalleServicio) => {
           const resultDetalle = await conn.query(
-            "DELETE FROM detallesServicio WHERE id=" + detalleServicio.id + ";"
+            "DELETE FROM detallesServicio WHERE id=" + detalleServicio.id + ";",
           );
 
           console.log(resultDetalle);
         });
         const resultContratado = await conn.query(
-          "DELETE FROM serviciosContratados WHERE id=" + descontratar + ";"
+          "DELETE FROM serviciosContratados WHERE id=" + descontratar + ";",
         );
         event.sender.send("Notificar", {
           success: true,
@@ -2134,7 +2123,7 @@ ipcMain.handle("deleteContratadoDetalle", async (event, descontratar) => {
     } else {
       console.log("Array sin datos");
       const resultContratado = await conn.query(
-        "DELETE FROM serviciosContratados WHERE id= " + descontratar + ";"
+        "DELETE FROM serviciosContratados WHERE id= " + descontratar + ";",
       );
       console.log(resultContratado);
       event.sender.send("Notificar", {
@@ -2215,13 +2204,13 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
     const detallesServicio = await conn.query(
       "SELECT * FROM detallesServicio WHERE serviciosContratadosId =" +
         detallesActualizar.id +
-        ";"
+        ";",
     );
 
     if (detallesServicio.length > 0) {
       console.log("Detalles existentes");
       const canceladoExiste = detallesServicio.find(
-        (cancelado) => cancelado.estado === "Cancelado"
+        (cancelado) => cancelado.estado === "Cancelado",
       );
 
       if (canceladoExiste) {
@@ -2243,7 +2232,7 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
         const resultDetalle = await conn.query(
           "DELETE FROM detallesServicio WHERE serviciosContratadosId=" +
             detallesActualizar.id +
-            ";"
+            ";",
         );
         console.log(resultDetalle);
         // // Actualiamos los valores del servicio contratado
@@ -2251,7 +2240,7 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
           "UPDATE serviciosContratados set ? WHERE id=" +
             detallesActualizar.id +
             " ;",
-          newContratado
+          newContratado,
         );
         // if (detallesActualizar.numeroPagosIndividual > 1) {
         //   console.log('Entro...')
@@ -2282,7 +2271,7 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
           // Consulto las fechas de emision que existen despues de la que se ha guardado
           const fechasExistentes = await conn.query(
             "SELECT fechaEmision FROM viewPlanillas WHERE fechaEmision >= ? AND contratosId=? GROUP BY fechaEmision;",
-            [formatearFecha(editFechaEmision), contratoId]
+            [formatearFecha(editFechaEmision), contratoId],
           );
 
           // Creamos de nuevo los detalles del servicio por cada fecha que exista
@@ -2290,9 +2279,9 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
             async (fechaExistente) => {
               await createCuentaServicios(
                 contratoId,
-                formatearFecha(fechaExistente)
+                formatearFecha(fechaExistente),
               );
-            }
+            },
           );
 
           // Esperar a que todas las promesas se resuelvan
@@ -2300,7 +2289,7 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
         } else {
           await createCuentaServicios(
             contratoId,
-            formatearFecha(editFechaEmision)
+            formatearFecha(editFechaEmision),
           );
         }
         event.sender.send("Notificar", {
@@ -2316,7 +2305,7 @@ ipcMain.handle("updateContratadoDetalle", async (event, detallesActualizar) => {
         "UPDATE serviciosContratados set ?   WHERE id=" +
           detallesActualizar.id +
           " ;",
-        newContratado
+        newContratado,
       );
       console.log(resultContratado);
       event.sender.send("Notificar", {
@@ -2340,7 +2329,7 @@ ipcMain.handle("updateCuotas", async (event, id, cuota) => {
     const conn = await getConnection();
     const resultServicio = await conn.query(
       "UPDATE servicios SET ? where id = ?",
-      [cuota, id]
+      [cuota, id],
     );
     event.sender.send("Notificar", {
       success: true,
@@ -2390,14 +2379,14 @@ ipcMain.handle(
           servicioId +
           " AND id=" +
           contratoId +
-          " ;"
+          " ;",
       );
       console.log("Resultado de contratado: " + result[0]);
       return result;
     } catch (error) {
       console.log("Error :" + error);
     }
-  }
+  },
 );
 // ----------------------------------------------------------------
 //   funciones de los Descuentos
@@ -2420,7 +2409,7 @@ ipcMain.handle("getMedidores", async () => {
 ipcMain.handle("getMedidoresDisponibles", async () => {
   const conn = await getConnection();
   const results = conn.query(
-    "Select * from implementos where implementos.nombre='Medidor' and implementos.stock>0 order by id desc;"
+    "Select * from implementos where implementos.nombre='Medidor' and implementos.stock>0 order by id desc;",
   );
   console.log(results);
   return results;
@@ -2524,13 +2513,13 @@ ipcMain.handle("getContratosAnterioresByCedula", async (event, cedula) => {
       "select * from viewContratos " +
         "where medidorSn='No' and cedulaPasaporte='" +
         cedula +
-        "' ; "
+        "' ; ",
     );
     const conMedidores = await conn.query(
       "select * from viewContratos " +
         "where medidorSn='Si' and cedulaPasaporte='" +
         cedula +
-        "' ; "
+        "' ; ",
     );
     sinMedidor = sinMedidores.length;
     conMedidor = conMedidores.length;
@@ -2550,7 +2539,7 @@ ipcMain.handle("getContratosAnterioresByCedula", async (event, cedula) => {
           " contrato(s) con Medidor\n" +
           "Sector: " +
           listasectores +
-          "\nVerifica el registro de contratos antes de crear uno nuevo!"
+          "\nVerifica el registro de contratos antes de crear uno nuevo!",
       );
       contratosTotal = conMedidores;
     } else if (sinMedidor > 0 && conMedidor == 0) {
@@ -2565,7 +2554,7 @@ ipcMain.handle("getContratosAnterioresByCedula", async (event, cedula) => {
           " contrato(s) sin Medidor\n" +
           "Sector: " +
           listasectores +
-          "\nVerifica el registro de contratos antes de crear uno nuevo!"
+          "\nVerifica el registro de contratos antes de crear uno nuevo!",
       );
       contratosTotal = sinMedidores;
     } else if (sinMedidor > 0 && conMedidor > 0) {
@@ -2591,7 +2580,7 @@ ipcMain.handle("getContratosAnterioresByCedula", async (event, cedula) => {
           "  " +
           "Sector: " +
           listasectores2 +
-          "\nVerifica el registro de contratos antes de crear uno nuevo!"
+          "\nVerifica el registro de contratos antes de crear uno nuevo!",
       );
       contratosTotal += conMedidores;
       contratosTotal += sinMedidores;
@@ -2607,7 +2596,7 @@ ipcMain.handle("getContratosSimilares", async (event, socioId) => {
     const conn = await getConnection();
     const contratosSimilares = await conn.query(
       "SELECT * FROM contratos WHERE sociosId=?",
-      socioId
+      socioId,
     );
     return contratosSimilares;
   } catch (error) {
@@ -2624,14 +2613,14 @@ ipcMain.handle(
           socioId +
           " AND serviciosId=" +
           servicioId +
-          " AND estado='Activo';"
+          " AND estado='Activo';",
       );
       console.log("Compartidos anteriores: ", compartidosAnteriores);
       return compartidosAnteriores;
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "getContratosConMedidor",
@@ -2642,7 +2631,7 @@ ipcMain.handle(
       const conn = await getConnection();
       if (criterio == "all" || criterio == undefined) {
         contratosConMedidor = await conn.query(
-          "SELECT * from viewContratos where medidorSn='Si' order by contratosId desc;"
+          "SELECT * from viewContratos where medidorSn='Si' order by contratosId desc;",
         );
       } else {
         contratosConMedidor = await conn.query(
@@ -2651,7 +2640,7 @@ ipcMain.handle(
             " like '%" +
             criterioContent +
             "%'" +
-            " order by contratosId desc;"
+            " order by contratosId desc;",
         );
       }
       console.log(contratosConMedidor);
@@ -2659,7 +2648,7 @@ ipcMain.handle(
     } catch (e) {
       Console.log(e);
     }
-  }
+  },
 );
 ipcMain.handle(
   "getContratosSinMedidor",
@@ -2669,7 +2658,7 @@ ipcMain.handle(
       const conn = await getConnection();
       if (criterio == "all" || criterio == undefined) {
         contratosSinMedidor = await conn.query(
-          "SELECT * from viewContratos where medidorSn='No' order by contratosId desc;"
+          "SELECT * from viewContratos where medidorSn='No' order by contratosId desc;",
         );
       } else {
         contratosSinMedidor = await conn.query(
@@ -2678,7 +2667,7 @@ ipcMain.handle(
             " like '%" +
             criterioContent +
             "%'" +
-            " order by contratosId desc;"
+            " order by contratosId desc;",
         );
       }
       console.log(contratosSinMedidor);
@@ -2686,7 +2675,7 @@ ipcMain.handle(
     } catch (e) {
       console.log(e);
     }
-  }
+  },
 );
 ipcMain.handle("createContrato", async (event, contrato, numero, sectorId) => {
   try {
@@ -2694,7 +2683,7 @@ ipcMain.handle("createContrato", async (event, contrato, numero, sectorId) => {
     const conn = await getConnection();
     const contratosAnteriores = await conn.query(
       "SELECT * FROM contratos WHERE  sociosId= ?",
-      contrato.sociosId
+      contrato.sociosId,
     );
     if (contratosAnteriores.length > 0) {
       contrato.principalSn = "No";
@@ -2727,14 +2716,14 @@ ipcMain.handle("getDatosContratosById", async (event, id) => {
   var mensaje = "NM: ";
   var result = "";
   result = await conn.query(
-    "SELECT * FROM viewcontratosconmedidor where id=" + id + ";"
+    "SELECT * FROM viewcontratosconmedidor where id=" + id + ";",
   );
 
   if (!result.length == 0) {
     mensaje = "Datos contrato con medidor: ";
   } else {
     result = await conn.query(
-      "SELECT * FROM viewcontratossinmedidor where id=" + id + ";"
+      "SELECT * FROM viewcontratossinmedidor where id=" + id + ";",
     );
     if (!result.length == 0) {
       mensaje = "Datos contrato sin medidor: ";
@@ -2753,14 +2742,14 @@ ipcMain.handle("updatePrincipal", async (event, contratoId, socioId) => {
         contratoId +
         " AND contratos.sociosId=" +
         socioId +
-        " ;"
+        " ;",
     );
     const resultPrincipales = await conn.query(
       "UPDATE contratos SET principalSn='Si' WHERE contratos.id=" +
         contratoId +
         " AND contratos.sociosId=" +
         socioId +
-        " ;"
+        " ;",
     );
     event.sender.send("Notificar", {
       success: true,
@@ -2783,7 +2772,7 @@ async function sumarSociosSectores(numero, sectorId) {
     const conn = await getConnection();
     const result = await conn.query(
       "Update sectores set numeroSocios=? WHERE id= ?",
-      [numero, sectorId]
+      [numero, sectorId],
     );
     console.log(result);
     new Notification({
@@ -2825,7 +2814,7 @@ ipcMain.handle("updateMedidor", async (event, id, medidor) => {
   try {
     const conn = await getConnection();
     var medidorExistente = await conn.query(
-      "SELECT id FROM medidores  WHERE contratosId=" + id + ";"
+      "SELECT id FROM medidores  WHERE contratosId=" + id + ";",
     );
     if (medidorExistente[0] !== undefined) {
       console.log("resultado de buscar el medidor: " + medidorExistente[0]);
@@ -2881,7 +2870,7 @@ ipcMain.handle(
           descuentosId +
           ",'" +
           adquiridoSn +
-          "');"
+          "');",
       );
       console.log(resultContratarServicio);
       // new Notification({
@@ -2894,7 +2883,7 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "createServicioFijoContratadoMultiple",
@@ -2908,10 +2897,10 @@ ipcMain.handle(
       console.log("Recibido: ", servicioId);
       // Verificamos si existe el servicio en servicios contratados del contrato.
       const datosServicio = await conn.query(
-        "SELECT * from servicios WHERE id=" + servicioId + ";"
+        "SELECT * from servicios WHERE id=" + servicioId + ";",
       );
       const datosDescuento = await conn.query(
-        "SELECT * FROM tiposDescuento WHERE id=" + descuentosId + ";"
+        "SELECT * FROM tiposDescuento WHERE id=" + descuentosId + ";",
       );
       if (datosServicio[0] !== undefined) {
         console.log("Si hay datos: " + datosServicio[0].id);
@@ -2928,7 +2917,7 @@ ipcMain.handle(
           servicioId +
           " AND contratosId=" +
           contratoId +
-          ";"
+          ";",
       );
       const newContratado = {
         estado: adquiridoSn,
@@ -2947,7 +2936,7 @@ ipcMain.handle(
           "UPDATE serviciosContratados SET ?" +
             " WHERE " +
             "serviciosId=? AND contratosId=? ;",
-          [newContratado, servicioId, contratoId]
+          [newContratado, servicioId, contratoId],
         );
         event.sender.send("Notificacion", {
           success: true,
@@ -2965,7 +2954,7 @@ ipcMain.handle(
         newContratado.contratosId = contratoId;
         const resultServicioContratado = await conn.query(
           "INSERT INTO serviciosContratados SET ?" + ";",
-          newContratado
+          newContratado,
         );
         event.sender.send("Notificacion", {
           success: true,
@@ -2984,7 +2973,7 @@ ipcMain.handle(
       });
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "createServicioFijoContratado",
@@ -2998,10 +2987,10 @@ ipcMain.handle(
       console.log("Recibido: ", servicioId);
       // Verificamos si existe el servicio en servicios contratados del contrato.
       const datosServicio = await conn.query(
-        "SELECT * from servicios WHERE id=" + servicioId + ";"
+        "SELECT * from servicios WHERE id=" + servicioId + ";",
       );
       const datosDescuento = await conn.query(
-        "SELECT * FROM tiposDescuento WHERE id=" + descuentosId + ";"
+        "SELECT * FROM tiposDescuento WHERE id=" + descuentosId + ";",
       );
       if (datosServicio[0] !== undefined) {
         console.log("Si hay datos: " + datosServicio[0].id);
@@ -3018,7 +3007,7 @@ ipcMain.handle(
           servicioId +
           " AND contratosId=" +
           contratoId +
-          ";"
+          ";",
       );
       const newContratado = {
         estado: adquiridoSn,
@@ -3037,7 +3026,7 @@ ipcMain.handle(
           "UPDATE serviciosContratados SET ?" +
             " WHERE " +
             "serviciosId=? AND contratosId=? ;",
-          [newContratado, servicioId, contratoId]
+          [newContratado, servicioId, contratoId],
         );
         event.sender.send("Notificar", {
           success: true,
@@ -3055,7 +3044,7 @@ ipcMain.handle(
         newContratado.contratosId = contratoId;
         const resultServicioContratado = await conn.query(
           "INSERT INTO serviciosContratados SET ?" + ";",
-          newContratado
+          newContratado,
         );
         event.sender.send("Notificar", {
           success: true,
@@ -3074,7 +3063,7 @@ ipcMain.handle(
       });
       console.log(error);
     }
-  }
+  },
 );
 
 // ----------------------------------------------------------------
@@ -3108,7 +3097,7 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
     medidoresActivos = await conn.query(
       "select medidores.id,medidores.codigo,medidores.fechaInstalacion,contratos.id as contratosId,contratos.medidorSn " +
         "from medidores join contratos on contratos.id=medidores.contratosId " +
-        "where contratos.estado='Activo'; "
+        "where contratos.estado='Activo'; ",
       // "where contratos.medidorSn='Si' AND contratos.estado='Activo'; "
     );
 
@@ -3136,7 +3125,7 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
               "') " +
               "and  planillas.medidoresId=" +
               contratoActivo.id +
-              ";"
+              ";",
           );
           console.log("existe: " + planillaExiste[0].existe);
           // Si no existe la planilla correspondiente a la fecha se crea a planilla
@@ -3147,20 +3136,20 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
               " SELECT planillas.lecturaActual from planillas where " +
                 "medidoresId=" +
                 contratoActivo.id +
-                " order by planillas.fechaEmision desc limit 1;"
+                " order by planillas.fechaEmision desc limit 1;",
             );
             if (lecturaConsulta[0] !== undefined) {
               console.log(
                 "lectura Anterior: ",
-                lecturaConsulta[0].lecturaActual
+                lecturaConsulta[0].lecturaActual,
               );
               lecturaAnterior = lecturaConsulta[0].lecturaActual;
             }
             const tarifaBase = await conn.query(
-              "SELECT * FROM tarifas where tarifa='Familiar';"
+              "SELECT * FROM tarifas where tarifa='Familiar';",
             );
             const numeroPlanillas = await conn.query(
-              "SELECT count(id) as numeroPlanillas FROM planillas;"
+              "SELECT count(id) as numeroPlanillas FROM planillas;",
             );
             numero =
               numeroPlanillas[0].numeroPlanillas +
@@ -3184,7 +3173,7 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
             };
             const resultadoPlanillas = await conn.query(
               "INSERT INTO planillas set ?",
-              newPlanilla
+              newPlanilla,
             );
             console.log("Resultado de crear planillas: " + resultadoPlanillas);
             // return resultadoPlanillas;
@@ -3204,7 +3193,7 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
               "') " +
               "and  planillas.medidoresId=" +
               contratoActivo.id +
-              ";"
+              ";",
           );
           console.log("existe: " + planillaExiste[0].existe);
           // Si no existe la planilla correspondiente a la fecha se crea a planilla
@@ -3227,7 +3216,7 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
             //   "SELECT * FROM tarifas where tarifa='Familiar';"
             // );
             const numeroPlanillas = await conn.query(
-              "SELECT count(id) as numeroPlanillas FROM planillas;"
+              "SELECT count(id) as numeroPlanillas FROM planillas;",
             );
             numero =
               numeroPlanillas[0].numeroPlanillas +
@@ -3249,7 +3238,7 @@ ipcMain.handle("createPlanilla", async (event, fechaCreacion) => {
             };
             const resultadoPlanillas = await conn.query(
               "INSERT INTO planillas set ?",
-              newPlanilla
+              newPlanilla,
             );
             console.log("Resultado de crear planillas: " + resultadoPlanillas);
             // return resultadoPlanillas;
@@ -3289,7 +3278,7 @@ async function createCuentaServicios(datosContrato, fechaCreacion) {
         fechaCreacion +
         "') and contratosId=" +
         contratoId +
-        ";"
+        ";",
     );
     if (encabezadoExiste[0].existe === 0) {
       console.log("Existe encabezado: ", encabezadoExiste[0].existe);
@@ -3302,7 +3291,7 @@ async function createCuentaServicios(datosContrato, fechaCreacion) {
       };
       const resultEncabezado = await conn.query(
         "INSERT INTO encabezado set ?;",
-        newEncabezado
+        newEncabezado,
       );
       encabezadoId = resultEncabezado.insertId;
     } else {
@@ -3313,13 +3302,13 @@ async function createCuentaServicios(datosContrato, fechaCreacion) {
     const serviciosContratados = await conn.query(
       "SELECT * FROM viewServiciosCancelar WHERE contratosId=" +
         contratoId +
-        " AND estado='Activo' AND tipo='Servicio fijo' AND aplazableSn='No';"
+        " AND estado='Activo' AND tipo='Servicio fijo' AND aplazableSn='No';",
     );
     await createDetallesServicios(
       serviciosContratados,
       encabezadoId,
       fechaCreacion,
-      datosContrato
+      datosContrato,
     );
     // Consultamos los servicios ocacionales, las cuotas y las multas que no son aplazables para
     // incluirlas en el detalle de servicios y relacionarlos con un encabezado correspondiente a la
@@ -3350,14 +3339,14 @@ async function createCuentaServicios(datosContrato, fechaCreacion) {
       "SELECT * FROM viewServiciosCancelar WHERE contratosId=" +
         contratoId +
         // " AND estado='Sin aplicar' AND NOT tipo='Servicio fijo';"
-        " AND NOT tipo='Servicio fijo';"
+        " AND NOT tipo='Servicio fijo';",
     );
 
     await createDetallesServicios(
       otrosValores,
       encabezadoId,
       fechaCreacion,
-      datosContrato
+      datosContrato,
     );
   } catch (error) {
     console.log("Error al crear cuentaservicios: " + error);
@@ -3367,7 +3356,7 @@ async function createDetallesServicios(
   serviciosContratados,
   encabezadoId,
   fechaCreacion,
-  datosContrato
+  datosContrato,
 ) {
   const contratoId = datosContrato.id;
   let contratoConmedidor = false;
@@ -3408,7 +3397,7 @@ async function createDetallesServicios(
         "') " +
         "and  detallesServicio.serviciosContratadosId=" +
         servicioContratado.id +
-        ";"
+        ";",
     );
     console.log("Detalle servicio existe: ", detalleServicioExiste.length);
     // Si no existen los detalles de servicios correspondiente a la fecha se crean y se añaden al encabezado
@@ -3416,7 +3405,7 @@ async function createDetallesServicios(
     if (detalleServicioExiste.length === 0) {
       console.log(
         "Servicio a registrar: " + servicioContratado.valorIndividual,
-        servicioContratado.valorPagosIndividual
+        servicioContratado.valorPagosIndividual,
       );
       let valorPagos = 0.0;
       let total = 0.0;
@@ -3434,7 +3423,7 @@ async function createDetallesServicios(
         const aplicadosAnteriores = await conn.query(
           "SELECT * FROM detallesServicio WHERE serviciosContratadosId=" +
             servicioContratado.id +
-            " ;"
+            " ;",
         );
         if (aplicadosAnteriores[0] !== undefined) {
           console.log("Entro a los aplazables con anteriores");
@@ -3454,7 +3443,7 @@ async function createDetallesServicios(
             var faltante = totalPagar - abonado;
             if (faltante > servicioContratado.valorPagosIndividual) {
               console.log(
-                "Entro a los aplazables con faltante mayor a la cuota"
+                "Entro a los aplazables con faltante mayor a la cuota",
               );
 
               var pagosRestantes =
@@ -3462,7 +3451,7 @@ async function createDetallesServicios(
               abono = servicioContratado.valorPagosIndividual;
             } else {
               console.log(
-                "Entro a los aplazables con faltante menor a la cuota"
+                "Entro a los aplazables con faltante menor a la cuota",
               );
 
               abono = faltante;
@@ -3531,12 +3520,12 @@ async function createDetallesServicios(
         // No se debe aplicar dos veces.
         if (servicioContratado.tipo !== "Servicio fijo") {
           console.log(
-            "Error: " + servicioContratado.tipo + " | " + servicioContratado.id
+            "Error: " + servicioContratado.tipo + " | " + servicioContratado.id,
           );
           const noAplazableAplicado = await conn.query(
             "SELECT * from detallesServicio where serviciosContratadosId=" +
               servicioContratado.id +
-              " ;"
+              " ;",
           );
           console.log("Here: ", noAplazableAplicado.length);
 
@@ -3569,23 +3558,23 @@ async function createDetallesServicios(
               // Consultamos si el recargo ha sido aplicado antes y si ha sido cancelado
               const recargoAplicado = await conn.query(
                 "SELECT * FROM viewEstadoPagos WHERE nombre='Reconexión' and estadoDetalles='Por cancelar' and total>0 and contratosId=? ;",
-                contratoId
+                contratoId,
               );
               if (!recargoAplicado.length > 0) {
                 console.log("Conteo de planillas ");
                 // Conteo de planillas Adeudadas
                 const planillasAdeudadas = await conn.query(
                   "SELECT * from viewPlanillas where fechaEmision < ? and contratosId=? and estado='Por cobrar' order by fechaEmision asc ;",
-                  [fechaCreacion, contratoId]
+                  [fechaCreacion, contratoId],
                 );
 
                 if (planillasAdeudadas.length >= 2) {
                   console.log(
                     "Planillas acumuladas: ",
-                    planillasAdeudadas.length
+                    planillasAdeudadas.length,
                   );
                   let fechaPagoReconexion = formatearFecha(
-                    planillasAdeudadas[0].fechaEmision
+                    planillasAdeudadas[0].fechaEmision,
                   );
                   console.log("Fecha reconexión: " + fechaPagoReconexion);
                   // Consulto el encabezado de la primera Planilla con el servicio guia.
@@ -3597,11 +3586,11 @@ async function createDetallesServicios(
                       "and year(fechaEmision)=year('" +
                       fechaPagoReconexion +
                       "') and contratosId=? limit 1;",
-                    contratoId
+                    contratoId,
                   );
                   console.log("Contrato: " + contratoId);
                   console.log(
-                    "Primer encabezado: " + primerEncabezado[0].encabezadosId
+                    "Primer encabezado: " + primerEncabezado[0].encabezadosId,
                   );
                   // abono = servicioContratado.valorPagosIndividual;
                   // //total = servicioContratado.valorIndividual;
@@ -3705,7 +3694,7 @@ async function createDetallesServicios(
       if (!Object.keys(newDetalleServicios).length == 0) {
         const resultadoDetalleServicio = await conn.query(
           "INSERT INTO detallesServicio set ?",
-          newDetalleServicios
+          newDetalleServicios,
         );
         console.log("servicioContratado.tipo: ", servicioContratado.tipo);
         if (servicioContratado.tipo !== "Servicio fijo") {
@@ -3713,16 +3702,16 @@ async function createDetallesServicios(
           const modificaEstado = await conn.query(
             "UPDATE serviciosContratados SET estado='Aplicado' WHERE serviciosContratados.id=" +
               servicioContratado.id +
-              ";"
+              ";",
           );
 
           console.log(
-            "Resultado de crear planillas: " + resultadoDetalleServicio
+            "Resultado de crear planillas: " + resultadoDetalleServicio,
           );
           return resultadoDetalleServicio;
         } else {
           console.log(
-            "Resultado de crear planillas: " + resultadoDetalleServicio
+            "Resultado de crear planillas: " + resultadoDetalleServicio,
           );
           return resultadoDetalleServicio;
         }
@@ -3742,7 +3731,7 @@ ipcMain.handle(
       criterioContent,
       estado,
       anio,
-      mes
+      mes,
     );
     try {
       const conn = await getConnection();
@@ -3765,7 +3754,7 @@ ipcMain.handle(
             "SELECT * FROM viewPlanillas WHERE " +
               "estado like'%" +
               estado +
-              "%' order by primerApellido "
+              "%' order by primerApellido ",
           );
           console.log(results);
           return results;
@@ -3777,7 +3766,7 @@ ipcMain.handle(
               estado +
               "%' and month(fechaEmision) = '" +
               mes +
-              "' order by primerApellido ;"
+              "' order by primerApellido ;",
           );
           console.log(results);
           return results;
@@ -3790,7 +3779,7 @@ ipcMain.handle(
               "%' and " +
               " year(fechaEmision) = '" +
               anio +
-              "' order by primerApellido ;"
+              "' order by primerApellido ;",
           );
           console.log(results);
           return results;
@@ -3805,7 +3794,7 @@ ipcMain.handle(
               anio +
               "' and month(fechaEmision) = '" +
               mes +
-              "' order by primerApellido ;"
+              "' order by primerApellido ;",
           );
           console.log(results);
           return results;
@@ -3820,7 +3809,7 @@ ipcMain.handle(
               criterioContent +
               "%' and estado like'%" +
               estado +
-              "%' order by primerApellido ;"
+              "%' order by primerApellido ;",
           );
           console.log(results);
           return results;
@@ -3835,7 +3824,7 @@ ipcMain.handle(
               estado +
               "%' and month(fechaEmision) = '" +
               mes +
-              "' order by primerApellido ;"
+              "' order by primerApellido ;",
           );
           console.log(results);
           return results;
@@ -3851,7 +3840,7 @@ ipcMain.handle(
               "%' and " +
               " year(fechaEmision) = '" +
               anio +
-              "' order by primerApellido;"
+              "' order by primerApellido;",
           );
           console.log(results);
           return results;
@@ -3869,7 +3858,7 @@ ipcMain.handle(
               anio +
               "' and month(fechaEmision) = '" +
               mes +
-              "' order by primerApellido ;"
+              "' order by primerApellido ;",
           );
           console.log(results);
           return results;
@@ -3898,7 +3887,7 @@ ipcMain.handle(
     } catch (error) {
       console.log("Error en la busqueda de planillas: " + error);
     }
-  }
+  },
 );
 // Obtener las planillas acumuladas
 ipcMain.handle(
@@ -3909,7 +3898,7 @@ ipcMain.handle(
       criterioContent,
       estado,
       anio,
-      mes
+      mes,
     );
     try {
       const conn = await getConnection();
@@ -3932,7 +3921,7 @@ ipcMain.handle(
             "SELECT * FROM viewPlanillas WHERE " +
               "estado like'%" +
               estado +
-              "%' order by fechaEmision desc"
+              "%' order by fechaEmision desc",
           );
           console.log(results);
           return results;
@@ -3944,7 +3933,7 @@ ipcMain.handle(
               estado +
               "%' and month(fechaEmision) = '" +
               mes +
-              "' order by fechaEmision desc ;"
+              "' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -3957,7 +3946,7 @@ ipcMain.handle(
               "%' and " +
               " year(fechaEmision) = '" +
               anio +
-              "' order by fechaEmision desc ;"
+              "' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -3972,7 +3961,7 @@ ipcMain.handle(
               anio +
               "' and month(fechaEmision) = '" +
               mes +
-              "' order by fechaEmision desc ;"
+              "' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -3987,7 +3976,7 @@ ipcMain.handle(
               criterioContent +
               "%' and estado like'%" +
               estado +
-              "%' order by fechaEmision desc ;"
+              "%' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -4002,7 +3991,7 @@ ipcMain.handle(
               estado +
               "%' and month(fechaEmision) = '" +
               mes +
-              "' order by fechaEmision desc ;"
+              "' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -4018,7 +4007,7 @@ ipcMain.handle(
               "%' and " +
               " year(fechaEmision) = '" +
               anio +
-              "' order by fechaEmision desc ;"
+              "' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -4036,7 +4025,7 @@ ipcMain.handle(
               anio +
               "' and month(fechaEmision) = '" +
               mes +
-              "' order by fechaEmision desc ;"
+              "' order by fechaEmision desc ;",
           );
           console.log(results);
           return results;
@@ -4065,7 +4054,7 @@ ipcMain.handle(
     } catch (error) {
       console.log("Error en la busqueda de planillas: " + error);
     }
-  }
+  },
 );
 
 ipcMain.handle("getAllPlanillasFuncionando", async (event, estado) => {
@@ -4074,12 +4063,12 @@ ipcMain.handle("getAllPlanillasFuncionando", async (event, estado) => {
     if (estado) {
       const results = await conn.query(
         "SELECT * from viewPlanillas WHERE estado=? ;",
-        estado
+        estado,
       );
       return results;
     } else {
       const results = await conn.query(
-        "SELECT * from viewPlanillas WHERE estado='Por cobrar';"
+        "SELECT * from viewPlanillas WHERE estado='Por cobrar';",
       );
       return results;
     }
@@ -4097,12 +4086,12 @@ ipcMain.handle("getAllPlanillas", async (event, criterio, criterioContent) => {
           criterio +
           " like '%" +
           criterioContent +
-          "%' ;"
+          "%' ;",
       );
       return results;
     } else {
       const results = await conn.query(
-        "SELECT * from viewPlanillas WHERE estado='Por cobrar';"
+        "SELECT * from viewPlanillas WHERE estado='Por cobrar';",
       );
       return results;
     }
@@ -4116,7 +4105,7 @@ ipcMain.handle("getAllServicios", async (event, fechaEmision, contratoId) => {
     const conn = await getConnection();
     const results = await conn.query(
       "SELECT * FROM viewEstadoPagos WHERE fechaEmision=? and contratosId=? ;",
-      [fechaEmision, contratoId]
+      [fechaEmision, contratoId],
     );
     return results;
   } catch (error) {
@@ -4127,7 +4116,7 @@ ipcMain.handle("getAllServicios", async (event, fechaEmision, contratoId) => {
 ipcMain.handle("getPlanillaById", async (event, planillaId) => {
   const conn = await getConnection();
   const results = conn.query(
-    "SELECT * FROM viewPlanillas where planillasId=" + planillaId + ";"
+    "SELECT * FROM viewPlanillas where planillasId=" + planillaId + ";",
   );
   console.log(results);
   return results;
@@ -4212,13 +4201,13 @@ ipcMain.handle(
           fechaPlanilla +
           "' and estado='Por cobrar' and contratosId=" +
           contratoId +
-          ";"
+          ";",
       );
       return anterioresCancelar;
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "getServiciosAgrupados",
@@ -4237,7 +4226,7 @@ ipcMain.handle(
           "')" +
           " and contratosId=" +
           contratosId +
-          ";"
+          ";",
       );
 
       console.log(results);
@@ -4245,7 +4234,7 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -4261,14 +4250,14 @@ ipcMain.handle(
           "') and " +
           " year(fechaEmision)=year('" +
           fechaEmision +
-          "');"
+          "');",
       );
       console.log(results[0]);
       return results;
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 // ----------------------------------------------------------------
 // Funcion que relaiza un filtro entre las cuotas de acuerdo al codigo del medidor
@@ -4283,7 +4272,7 @@ ipcMain.handle("getDatosCuotasByCodigo", async (event, codigoMedidor) => {
         "contratos on contratos.id=planillas.contratosId join medidores " +
         "on contratos.id=medidores.contratosId where servicios.tipo='cuota'and medidores.codigo='" +
         codigoMedidor +
-        "'; "
+        "'; ",
     );
     const notification = new Notification({
       title: "Exito",
@@ -4311,7 +4300,7 @@ ipcMain.handle("ejectSocioComuna", async () => {
     const conn = await getConnection();
     // Obtengo los datos del servicio a contratar.
     const servicioGuia = await conn.query(
-      "SELECT * FROM servicios WHERE servicios.nombre ='Socio comuna';"
+      "SELECT * FROM servicios WHERE servicios.nombre ='Socio comuna';",
     );
     // Obtengo los contratos existentes.
     const existentes = await conn.query("SELECT * FROM contratos;");
@@ -4332,7 +4321,7 @@ ipcMain.handle("ejectSocioComuna", async () => {
         };
         const result = conn.query(
           "Insert into serviciosContratados set ?;",
-          newContratado
+          newContratado,
         );
       });
     }
@@ -4345,7 +4334,7 @@ ipcMain.handle("ejectContratado", async () => {
     const conn = await getConnection();
     // Obtengo los datos del servicio a contratar.
     const servicioRecargo = await conn.query(
-      "SELECT * FROM servicios WHERE servicios.nombre ='Reconexión';"
+      "SELECT * FROM servicios WHERE servicios.nombre ='Reconexión';",
     );
     // Obtengo los contratos existentes.
     const existentes = await conn.query("SELECT * FROM contratos;");
@@ -4364,7 +4353,7 @@ ipcMain.handle("ejectContratado", async () => {
         };
         const result = conn.query(
           "Insert into serviciosContratados set ?;",
-          newContratado
+          newContratado,
         );
       });
     }
@@ -4380,11 +4369,11 @@ ipcMain.handle("ejectContratadoDetalles", async () => {
     const conn = await getConnection();
     // Obtengo los datos del servicio a contratar.
     const servicioRecargo = await conn.query(
-      "SELECT * FROM servicios WHERE servicios.nombre ='Reconexión';"
+      "SELECT * FROM servicios WHERE servicios.nombre ='Reconexión';",
     );
     const contratadosExistentes = await conn.query(
       "SELECT * FROM viewservicioscontratados WHERE serviciosId=?;",
-      servicioRecargo[0].id
+      servicioRecargo[0].id,
     );
     if (contratadosExistentes.length > 0) {
       contratadosExistentes.forEach(async (contratadoExistente) => {
@@ -4394,24 +4383,24 @@ ipcMain.handle("ejectContratadoDetalles", async () => {
           // Consultamos si el recargo ha sido aplicado antes y si ha sido cancelado
           const recargoAplicado = await conn.query(
             "SELECT * FROM viewEstadoPagos WHERE nombre='Reconexión' and estadoDetalles='Por cancelar' and total>0 and contratosId=? ;",
-            contratadoExistente.id
+            contratadoExistente.id,
           );
           if (!recargoAplicado.length > 0) {
             const detallesAnteriores = await conn.query(
               "SELECT * FROM viewDetallesServicio WHERE contratosId=? order by id desc limit 1;",
-              contratadoExistente.id
+              contratadoExistente.id,
             );
             fecha = formatearFecha(detallesAnteriores[0].fechaEmision);
             // Conteo de planillas Adeudadas
 
             const planillasAnteriores = await conn.query(
               "SELECT * from viewPlanillas where fechaEmision < ? and contratosId=? and estado='Por cobrar' order by fechaEmision ASC ;",
-              [fecha, contratadoExistente.id]
+              [fecha, contratadoExistente.id],
             );
 
             if (planillasAnteriores.length >= 2) {
               let fechaPagoReconexion = formatearFecha(
-                planillasAnteriores[0].fechaEmision
+                planillasAnteriores[0].fechaEmision,
               );
               //               const detallesAnteriores = await conn.query(
               //   "SELECT * FROM viewDetallesServicio WHERE contratosId=? order by id asc limit 1;",
@@ -4426,7 +4415,7 @@ ipcMain.handle("ejectContratadoDetalles", async () => {
                   fechaPagoReconexion,
                   fechaPagoReconexion,
                   contratadoExistente.id,
-                ]
+                ],
               );
               const newDetalleServicio = {
                 serviciosContratadosId:
@@ -4442,7 +4431,7 @@ ipcMain.handle("ejectContratadoDetalles", async () => {
               };
               const result = await conn.query(
                 "Insert into detallesServicio set ?;",
-                newDetalleServicio
+                newDetalleServicio,
               );
             }
           }
@@ -4470,7 +4459,7 @@ ipcMain.handle(
           fechaEmision +
           "') and year(fechaEmision)= year('" +
           fechaEmision +
-          "') and not tipo='Servicio fijo';"
+          "') and not tipo='Servicio fijo';",
       );
       console.log("resultado de buscar servicios: ", result);
       return result;
@@ -4482,7 +4471,7 @@ ipcMain.handle(
           fechaEmision +
           "') and year(fechaEmision)= year('" +
           fechaEmision +
-          "') and  tipo='Servicio fijo';"
+          "') and  tipo='Servicio fijo';",
       );
       console.log("resultado de buscar servicios: ", result);
       return result;
@@ -4494,7 +4483,7 @@ ipcMain.handle(
           fechaEmision +
           "') and year(fechaEmision)= year('" +
           fechaEmision +
-          "');"
+          "');",
       );
       console.log("resultado de buscar servicios: ", result);
       return result;
@@ -4508,7 +4497,7 @@ ipcMain.handle(
     //     fechaEmision +
     //     "') and estado ='Activo';"
     // );
-  }
+  },
 );
 
 ipcMain.handle(
@@ -4534,13 +4523,13 @@ ipcMain.handle(
           "year(fechaEmision)=year('" +
           fechaEmision +
           "') AND " +
-          "nombre='Socio comuna';"
+          "nombre='Socio comuna';",
       );
       // if (canceladoGuiaSn[0].estadoDetalles !== "Cancelado") {
       console.log("Editar: " + canceladoGuiaSn[0].estadoDetalles);
       const result = await conn.query(
         "UPDATE detallesServicio set ? where id = ?",
-        [detalle, id]
+        [detalle, id],
       );
       event.sender.send("Notificar", {
         success: true,
@@ -4568,14 +4557,14 @@ ipcMain.handle(
       });
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle("getDetallesByContratadoId", async (event, contratadoId) => {
   const conn = await getConnection();
   const result = await conn.query(
     "SELECT * FROM detallesServicio WHERE detallesServicio.serviciosContratadosId=" +
       contratadoId +
-      ";"
+      ";",
   );
   console.log(result);
   return result;
@@ -4594,14 +4583,14 @@ ipcMain.handle(
           "year(fechaEmision)=year('" +
           fechaEmision +
           "') AND " +
-          "estadoDetalles='Anulado';"
+          "estadoDetalles='Anulado';",
       );
       console.log(result);
       return result;
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 
 // ----------------------------------------------------------------
@@ -4614,7 +4603,7 @@ ipcMain.handle(
     planillaCancelarId,
     encabezadoCancelarId,
     serviciosCancelar,
-    comprobante
+    comprobante,
   ) => {
     try {
       const conn = await getConnection();
@@ -4622,7 +4611,7 @@ ipcMain.handle(
         "Actualizando detalle: ",
         planillaCancelarId,
         encabezadoCancelarId,
-        serviciosCancelar
+        serviciosCancelar,
       );
       serviciosCancelar.forEach(async (servicioCancelar) => {
         let abono = 0;
@@ -4639,21 +4628,21 @@ ipcMain.handle(
             ", saldo=" +
             saldo +
             " WHERE id = ? ;",
-          servicioCancelar.id
+          servicioCancelar.id,
         );
       });
       await conn.query(
         "UPDATE planillas set estado='Cancelado' WHERE id = ? ;",
-        planillaCancelarId
+        planillaCancelarId,
       );
       const result = await conn.query(
         "UPDATE encabezado set estado='Cancelado',fechaPago=Now() WHERE id = ? ;",
-        encabezadoCancelarId
+        encabezadoCancelarId,
       );
       // Creamos el registro en la tabla de comprobante
       const resultComprobante = await conn.query(
         "INSERT INTO comprobantes set ? ;",
-        comprobante
+        comprobante,
       );
       event.sender.send("Notificar", {
         success: true,
@@ -4670,7 +4659,7 @@ ipcMain.handle(
       });
       console.log("Error al cancelar: ", error);
     }
-  }
+  },
 );
 ipcMain.handle(
   "cancelarServiciosIndividual",
@@ -4679,7 +4668,7 @@ ipcMain.handle(
     planillaCancelarId,
     encabezadoCancelarId,
     serviciosCancelar,
-    comprobante
+    comprobante,
   ) => {
     try {
       cancelarServicios(
@@ -4687,7 +4676,7 @@ ipcMain.handle(
         planillaCancelarId,
         encabezadoCancelarId,
         serviciosCancelar,
-        comprobante
+        comprobante,
       );
       event.sender.send("Notificar", {
         success: true,
@@ -4702,7 +4691,7 @@ ipcMain.handle(
       });
       console.log("Error al cancelar: ", error);
     }
-  }
+  },
 );
 // ipcMain.handle(
 //   "cancelarServiciosMultiples",
@@ -4769,7 +4758,7 @@ ipcMain.handle(
       cancelarServiciosMultiples(
         planillaCancelar,
         comprobante,
-        editadosCancelar
+        editadosCancelar,
       );
       event.sender.send("Notificar", {
         success: true,
@@ -4784,7 +4773,7 @@ ipcMain.handle(
       });
       console.log("Error al cancelar: ", error);
     }
-  }
+  },
 );
 ipcMain.handle("contratarEnPrincipales", async (event, servicioId, tipo) => {
   console.log("Recibido contratarPrincipales: ", servicioId, " ", tipo);
@@ -4803,7 +4792,7 @@ ipcMain.handle(
     } catch (error) {
       console.log(error);
     }
-  }
+  },
 );
 ipcMain.handle("getComprobantes", async (event, encabezadoId) => {
   try {
@@ -4814,7 +4803,7 @@ ipcMain.handle("getComprobantes", async (event, encabezadoId) => {
         "encabezadoComprobantes.encabezadosId,encabezadocomprobantes.comprobantesId " +
         "from comprobantes join encabezadocomprobantes on comprobantes.id=encabezadocomprobantes.comprobantesId " +
         "where encabezadosId=?",
-      encabezadoId
+      encabezadoId,
     );
     console.log("Comprobantes: ", comprobantes);
     return comprobantes;
@@ -4827,7 +4816,7 @@ ipcMain.handle("getEstados", async (event, encabezadoId) => {
     const conn = await getConnection();
     const estados = await conn.query(
       "SELECT estado FROM comprobantes WHERE encabezadosId=?;",
-      encabezadoId
+      encabezadoId,
     );
     console.log("Estados: ", estados);
     return estados;
@@ -4843,24 +4832,24 @@ ipcMain.handle(
       const resultPlanilla = await conn
         .query(
           "UPDATE planillas set estado='Por cobrar' WHERE id= ?",
-          planillaId
+          planillaId,
         )
         .then(async (resultPlanilla) => {
           const resultEncabezado = await conn.query(
             "UPDATE encabezado set estado=null,fechaPago=null WHERE id=?",
-            encabezadoId
+            encabezadoId,
           );
         })
         .then(async (resultEncabezado) => {
           const resultDetalles = await conn.query(
             "UPDATE detallesServicio set estado='Por cancelar' WHERE encabezadosId=?",
-            encabezadoId
+            encabezadoId,
           );
         })
         .then(async (resultDetalles) => {
           const resultComprobante = await conn.query(
             "UPDATE comprobantes set ? WHERE id=?",
-            [comprobante, comprobante.id]
+            [comprobante, comprobante.id],
           );
           event.sender.send("Notificar", {
             success: true,
@@ -4877,7 +4866,7 @@ ipcMain.handle(
       });
       console.log("Error al anular el pago: ", error);
     }
-  }
+  },
 );
 // ----------------------------------------------------------------
 // Funciones de los saldos
@@ -4891,7 +4880,7 @@ ipcMain.handle("getSaldosAFavor", async (event, socioId) => {
     const conn = await getConnection();
     const saldosExistente = await conn.query(
       "SELECT * FROM estadosCuenta WHERE sociosId=?",
-      socioId
+      socioId,
     );
     if (saldosExistente.length > 0) {
       saldosExistente.forEach((saldoExistente) => {
@@ -4943,14 +4932,14 @@ ipcMain.handle(
       if (!Object.keys(salidaCuenta).length == 0) {
         const result = await conn.query(
           "INSERT into estadosCuenta set  ?",
-          salidaCuenta
+          salidaCuenta,
         );
         console.log(result);
       }
       if (!Object.keys(entradaCuenta).length == 0) {
         const result = await conn.query(
           "INSERT into estadosCuenta set  ?",
-          entradaCuenta
+          entradaCuenta,
         );
         console.log(result);
       }
@@ -4967,7 +4956,7 @@ ipcMain.handle(
       });
       console.log(error);
     }
-  }
+  },
 );
 // ----------------------------------------------------------------
 // Funcion que consulta las tarifas por el servicio de agua potable
@@ -4992,7 +4981,7 @@ ipcMain.handle("getCuotasByPlanillaId", async (event, planillaId) => {
       "from servicios join extrasplanilla on servicios.id=extrasplanilla.serviciosId " +
       "join planillas on planillas.id=extrasplanilla.planillasId " +
       "where servicios.tipo='cuota' and planillas.id=?;",
-    planillaId
+    planillaId,
   );
   console.log(result);
   return result;
@@ -5014,7 +5003,7 @@ ipcMain.handle("createCuota", async (event, cuota, planillaId) => {
     };
     const result1 = await conn.query(
       "Insert into extrasplanilla set ?",
-      newExtrasPlanilla
+      newExtrasPlanilla,
     );
     console.log(result1);
     new Notification({
@@ -5035,7 +5024,7 @@ ipcMain.handle("getMultasDescByPlanillaId", async (event, planillaId) => {
       "multasdescuentos.motivo,multasdescuentos.fecha,multasdescuentos.valor from " +
       "multasdescuentos join planillas on planillas.id=multasdescuentos.planillaId " +
       "where planillas.id=?;",
-    planillaId
+    planillaId,
   );
   console.log(result);
   return result;
@@ -5046,7 +5035,7 @@ ipcMain.handle("updatePlanilla", async (event, id, planilla, contratoId) => {
     const conn = await getConnection();
     console.log("Actualizando planilla: " + planilla);
     const planillaCancelada = await conn.query(
-      "SELECT planillas.estado FROM planillas WHERE planillas.id= " + id + " ;"
+      "SELECT planillas.estado FROM planillas WHERE planillas.id= " + id + " ;",
     );
     if (planillaCancelada[0] !== undefined) {
       // if (planillaCancelada[0].estado == "Cancelado") {
@@ -5062,7 +5051,7 @@ ipcMain.handle("updatePlanilla", async (event, id, planilla, contratoId) => {
         if (planilla.tarifa == "Sin consumo") {
           const aplicadaSn = await conn.query(
             "SELECT * FROM viewPlanillas WHERE contratosId=? AND tarifa='Sin consumo';",
-            contratoId
+            contratoId,
           );
           if (aplicadaSn.length == 1) {
             event.sender.send("Notificar", {

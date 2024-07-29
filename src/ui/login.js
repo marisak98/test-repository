@@ -1,15 +1,14 @@
 const { ipcRenderer } = require("electron");
-// const SecureElectronStore = require('secure-electron-store');
 
 const validator = require("validator");
 const Swal = require("sweetalert2");
-// const abrirInterface = async()=> {
-//    const result=  ipcRenderer.send('abrirInterface',"src/ui/index.html");
-//   }
+
+/*
+ Variables para el inicio de session.
+ */
 const usuarioUsuario = document.getElementById("usuario");
 const usuarioClave = document.getElementById("clave");
 const mensajeError = document.getElementById("mensajeError");
-// const store = SecureElectronStore().getInstance();
 // ----------------------------------------------------------------
 // Funcion de inicio de session
 // ----------------------------------------------------------------
@@ -19,11 +18,7 @@ loginForm.addEventListener("submit", async (e) => {
   const clave = usuarioClave.value;
   if (validator.isEmpty(usuario) || validator.isEmpty(clave)) {
     mensajeError.textContent = "Todos los campos son obligatorios.";
-  }
-  //else if (!validator.isEmail(usuario)) {
-  //    mensajeError.textContent = "El correo electrónico ingresado no es válido.";
-  //  }
-  else if (!validator.isLength(clave, { max: 20 })) {
+  } else if (!validator.isLength(clave, { max: 20 })) {
     mensajeError.textContent =
       "La contraseña tiene un maximo de 20 caracteres.";
   } else {
